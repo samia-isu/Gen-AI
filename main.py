@@ -3,12 +3,15 @@ import streamlit as st
 import pickle
 import time
 from langchain import OpenAI
-from langchain.chains import RetrievalQAWithSourcesChain
+# from langchain.chains import RetrievalQAWithSourcesChain
+from langchain.chains.qa_with_sources.retrieval import RetrievalQAWithSourcesChain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import UnstructuredURLLoader
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
+from langchain import hub
+prompt = hub.pull("rlm/rag-prompt")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -65,13 +68,22 @@ if query:
     if os.path.exists(file_path):
         with open(file_path,"rb") as f:
             vectorstore = pickle.load(f)
-            chain = RetrievalQAWithSourcesChain.from_llm(llm=llm, retriever=vectorstore.as_retriever())
-            result = chain({"question": query}, return_only_outputs=True)
+
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+            retrieved_docs = retriever.invoke(query)
+            docs_content = ''
+            sources = []
+            for doc in retrieved_docs:
+                docs_content+=f'{doc.page_content}\n\n'
+                sources.append(doc.metadata['source'])
+            
+            messages = prompt.invoke({"question": query, "context": docs_content})
+            result = llm.invoke(messages)
+
             st.header("Answer")
-            st.write(result["answer"])
-            sources = result.get("sources", "")
+            st.write(result)
+            
             if sources:
                 st.subheader("Sources:")
-                sources_list = sources.split("\n")  # Split the sources by newline
-                for source in sources_list:
+                for source in sources:
                     st.write(source)
